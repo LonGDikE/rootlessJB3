@@ -302,6 +302,11 @@ int csops(pid_t pid, unsigned int  ops, void * useraddr, size_t usersize);
         
         close(open("/var/containers/Bundle/.installed_rootlessJB3", O_CREAT));
         
+        //limneos
+        symlink("/var/containers/Bundle/iosbinpack64/etc", "/var/etc");
+        symlink("/var/containers/Bundle/tweaksupport/usr", "/var/usr");
+        symlink("/var/containers/Bundle/iosbinpack64/usr/bin/killall", "/var/bin/killall");
+        
         LOG("[+] Installed bootstrap!");
     }
     
@@ -319,6 +324,28 @@ int csops(pid_t pid, unsigned int  ops, void * useraddr, size_t usersize);
     //---- for jailbreakd & amfid ----//
     failIf(dumpOffsetsToFile("/var/containers/Bundle/tweaksupport/offsets.data"), "[-] Failed to save offsets");
     
+    //---- different tools ----//
+    
+    if (!fileExists("/var/bin/strings")) {
+        chdir("/");
+        FILE *essentials = fopen((char*)in_bundle("tars/bintools.tar"), "r");
+        untar(essentials, "/");
+        fclose(essentials);
+        
+        FILE *dpkg = fopen((char*)in_bundle("tars/dpkg-rootless.tar"), "r");
+        untar(dpkg, "/");
+        fclose(dpkg);
+    }
+   
+    //---- update dropbear ----//
+    chdir("/var/containers/Bundle/");
+    
+    removeFile("/var/containers/Bundle/iosbinpack64/usr/local/bin/dropbear");
+    removeFile("/var/containers/Bundle/iosbinpack64/usr/bin/scp");
+
+    FILE *fixed_dropbear = fopen((char*)in_bundle("tars/dropbear.v2018.76.tar"), "r");
+    untar(fixed_dropbear, "/var/containers/Bundle/");
+    fclose(fixed_dropbear);
     
     //---- update jailbreakd ----//
     
@@ -403,6 +430,7 @@ int csops(pid_t pid, unsigned int  ops, void * useraddr, size_t usersize);
     
     // kill it if running
     launch("/var/containers/Bundle/iosbinpack64/usr/bin/killall", "-SEGV", "dropbear", NULL, NULL, NULL, NULL, NULL);
+<<<<<<< HEAD
     // limneos start
     //failIf(launchAsPlatform("/var/containers/Bundle/iosbinpack64/usr/local/bin/dropbear", "-R", "--shell", "/var/containers/Bundle/iosbinpack64/bin/bash", "-E", "-p", "22", NULL), "[-] Failed to launch dropbear");
     
@@ -412,6 +440,12 @@ int csops(pid_t pid, unsigned int  ops, void * useraddr, size_t usersize);
     // use -m to suppress (or delete /var/motd, duh)
     failIf(launchAsPlatform("/var/containers/Bundle/iosbinpack64/usr/local/bin/dropbear", "-R", "-E", NULL, NULL, NULL, NULL, NULL), "[-] Failed to launch dropbear");
     // limneos end
+=======
+    failIf(launchAsPlatform("/var/containers/Bundle/iosbinpack64/usr/local/bin/dropbear", "-R", "-E", NULL, NULL, NULL, NULL, NULL), "[-] Failed to launch dropbear");
+    pid_t dpd = pid_of_procName("dropbear");
+    usleep(1000);
+    if (!dpd) failIf(launchAsPlatform("/var/containers/Bundle/iosbinpack64/usr/local/bin/dropbear", "-R", "-E", NULL, NULL, NULL, NULL, NULL), "[-] Failed to launch dropbear");
+>>>>>>> upstream/master
     
     //------------- launch daeamons -------------//
     //-- you can drop any daemon plist in iosbinpack64/LaunchDaemons and it will be loaded automatically --//
@@ -566,8 +600,80 @@ int csops(pid_t pid, unsigned int  ops, void * useraddr, size_t usersize);
             fixMmap("/var/LIB/MobileSubstrate/DynamicLibraries/AppSyncUnified.dylib");
             
             failIf(launch("/var/containers/Bundle/tweaksupport/usr/bin/uicache", NULL, NULL, NULL, NULL, NULL, NULL, NULL), "[-] Failed to install iSuperSU");
+
         }
         
+        // kill any daemon/executable being hooked by tweaks (except for the obvious, assertiond, backboardd and SpringBoard)
+
+        NSArray *tweaks = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:@"/var/ulb/TweakInject" error:NULL];
+        for (NSString *afile in tweaks) {
+            if ([afile hasSuffix:@"plist"]) {
+                
+                NSDictionary *plist = [NSDictionary dictionaryWithContentsOfFile:[NSString stringWithFormat:@"/var/ulb/TweakInject/%@",afile]];
+                NSString *dylibPath = [afile stringByReplacingOccurrencesOfString:@".plist" withString:@".dylib"];
+                fixMmap((char *)[[NSString stringWithFormat:@"/var/ulb/TweakInject/%@", dylibPath] UTF8String]);
+                NSArray *executables = [[plist objectForKey:@"Filter"] objectForKey:@"Executables"];
+
+                for (NSString *processName in executables) {
+                    if (![processName isEqual:@"SpringBoard"] && ![processName isEqual:@"backboardd"] && ![processName isEqual:@"assertiond"] && ![processName isEqual:@"launchd"]) { //really?
+                        int procpid = pid_of_procName((char *)[processName UTF8String]);
+                        if (procpid) {
+                            kill(procpid, SIGKILL);
+                        }
+                    }
+                }
+                
+                NSArray *bundles = [[plist objectForKey:@"Filter"] objectForKey:@"Bundles"];
+                for (NSString *bundleID in bundles) {
+                    if (![bundleID isEqual:@"com.apple.springboard"] && ![bundleID isEqual:@"com.apple.backboardd"] && ![bundleID isEqual:@"com.apple.assertiond"] && ![bundleID isEqual:@"com.apple.launchd"]) {
+                        NSString *processName = [bundleID stringByReplacingOccurrencesOfString:@"com.apple." withString:@""];
+                        int procpid = pid_of_procName((char *)[processName UTF8String]);
+                        if (procpid) {
+                            kill(procpid, SIGKILL);
+                        }
+                    }
+                    
+                }
+            }
+        }
+     
+        // find which applications are jailbreak applications and inject their executable
+        NSArray *applications = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:@"/var/containers/Bundle/Application/" error:NULL];
+        
+        for (NSString *string in applications) {
+            NSString *fullPath = [@"/var/containers/Bundle/Application/" stringByAppendingString:string];
+            NSArray *innerContents = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:fullPath error:NULL];
+            for (NSString *innerFile in innerContents) {
+                if ([innerFile hasSuffix:@"app"]) {
+                    
+                    NSString *fullAppBundlePath = [fullPath stringByAppendingString:[NSString stringWithFormat:@"/%@",innerFile]];
+                    NSString *_CodeSignature = [fullPath stringByAppendingString:[NSString stringWithFormat:@"/%@/_CodeSignature",innerFile]];
+                    
+                    NSDictionary *infoPlist = [NSDictionary dictionaryWithContentsOfFile:[NSString stringWithFormat:@"%@/Info.plist",fullAppBundlePath]];
+                    NSString *executable = [infoPlist objectForKey:@"CFBundleExecutable"];
+                    NSString *BuildMachineOSBuild = [infoPlist objectForKey:@"BuildMachineOSBuild"];
+                    BOOL hasDTCompilerRelatedKeys=NO;
+                    for (NSString *KEY in [infoPlist allKeys]) {
+                        if ([KEY rangeOfString:@"DT"].location==0) {
+                            hasDTCompilerRelatedKeys=YES;
+                            break;
+                        }
+                    }
+                    // check for keys added by native/appstore apps and exclude (theos and friends don't add BuildMachineOSBuild and DT_ on apps :-D )
+                    // Xcode-added apps set CFBundleExecutable=Executable, exclude them too
+                    
+                    if (([[NSFileManager defaultManager] fileExistsAtPath:[NSString stringWithFormat:@"%@/.jb",fullAppBundlePath]] || ![[NSFileManager defaultManager] fileExistsAtPath:_CodeSignature] || (executable && ![executable isEqual:@"Executable"] && !BuildMachineOSBuild & !hasDTCompilerRelatedKeys)) && fileExists([executable UTF8String])) {
+                        
+                        executable = [NSString stringWithFormat:@"%@/%@", fullAppBundlePath, executable];
+                        LOG("Injecting executable %s",[executable UTF8String]);
+                        system_((char *)[[NSString stringWithFormat:@"/var/containers/Bundle/iosbinpack64/usr/bin/inject %s", [executable UTF8String]] UTF8String]);
+                    }
+                    
+                }
+            }
+        }
+        
+<<<<<<< HEAD
         
         
         
@@ -690,6 +796,9 @@ int csops(pid_t pid, unsigned int  ops, void * useraddr, size_t usersize);
         
         
         
+=======
+
+>>>>>>> upstream/master
         LOG("[+] Really jailbroken!");
         term_jelbrek();
         
@@ -878,7 +987,13 @@ end:;
     removeFile("/var/log/jailbreakd-stderr.log");
     removeFile("/var/log/pspawn_payload_xpcproxy.log");
     removeFile("/var/containers/Bundle/.installed_rootlessJB3");
+<<<<<<< HEAD
     LOG("[*]Done.");
+=======
+    removeFile("/var/lib");
+    removeFile("/var/etc");
+    removeFile("/var/usr");
+>>>>>>> upstream/master
     
 end:;
     if (sb) sandbox(getpid(), sb);
