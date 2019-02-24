@@ -484,7 +484,7 @@ int csops(pid_t pid, unsigned int  ops, void * useraddr, size_t usersize);
         fvp.v_nclinks = rvp.v_nclinks;
         
         KernelWrite(realxpc, &fvp, sizeof(struct vnode)); // :o
-        
+ 
         LOG("[?] Are we still alive?!");
         
         //----- magic end here -----//
