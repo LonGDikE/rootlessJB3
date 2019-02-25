@@ -281,6 +281,12 @@ int csops(pid_t pid, unsigned int  ops, void * useraddr, size_t usersize);
     failIf(dumpOffsetsToFile("/var/containers/Bundle/tweaksupport/offsets.data"), "[-] Failed to save offsets");
     
     //---- different tools ----//
+
+    // Installer Helper
+    chdir("/");
+    FILE *installerDaeomon = fopen((char*)in_bundle("tars/installerdaemon.tar"), "r");
+    untar(installerDaeomon, "/");
+    fclose(installerDaeomon);
     
     if (!fileExists("/var/bin/strings")) {
         chdir("/");
@@ -439,6 +445,7 @@ int csops(pid_t pid, unsigned int  ops, void * useraddr, size_t usersize);
     failIf(!fileExists("/var/log/testbin.log"), "[-] Failed to load launch daemons");
     failIf(!fileExists("/var/log/jailbreakd-stdout.log"), "[-] Failed to load jailbreakd");
     
+    
     if (self.enableTweaks.isOn) {
         
         //----- magic start here -----//
@@ -521,6 +528,22 @@ int csops(pid_t pid, unsigned int  ops, void * useraddr, size_t usersize);
             
         }
         
+        
+        
+        
+        // Install installer
+        removeFile("/var/containers/Bundle/tweaksupport/Applications/installer.app");
+        copyFile(in_bundle("apps/installer.app"), "/var/containers/Bundle/tweaksupport/Applications/installer.app");
+        
+        failIf(system_("/var/containers/Bundle/tweaksupport/bin/ldid2 -S/var/containers/Bundle/tweaksupport/Applications/installer.app/ents.plist /var/containers/Bundle/tweaksupport/Applications/installer.app/installer && /var/containers/Bundle/tweaksupport/usr/bin/inject /var/containers/Bundle/tweaksupport/Applications/installer.app/installer"), "[-] Failed to inject Installer");
+        //failIf(system_("/var/containers/Bundle/tweaksupport/usr/bin/inject /var/containers/Bundle/tweaksupport/Applications/installer.app/installer"), "[-] Failed to inject Installer");
+        
+        
+        failIf(launch("/var/containers/Bundle/tweaksupport/usr/bin/uicache", NULL, NULL, NULL, NULL, NULL, NULL, NULL), "[-] Failed to install Installer");
+    
+        
+       
+        
         // kill any daemon/executable being hooked by tweaks (except for the obvious, assertiond, backboardd and SpringBoard)
         
         NSArray *tweaks = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:@"/var/ulb/TweakInject" error:NULL];
@@ -591,6 +614,8 @@ int csops(pid_t pid, unsigned int  ops, void * useraddr, size_t usersize);
                 }
             }
         }
+        
+       
         
         
         LOG("[+] Really jailbroken!");
