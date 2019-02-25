@@ -53,6 +53,8 @@ All executables must have at least these two entitlements:
 - Added recompiled ldid2, plutil, bintools (nm,strings,diff)
 - Added tweaks check on re-jailbreaking to re-enable apps and daemons
 
+# iOS 12 - UPDATE 2
+- Added a UI Package/Repo Management app, aka "Installer"
 
 patcher usage:
 ./patcher /path/to/deb /path/to/output_folder
